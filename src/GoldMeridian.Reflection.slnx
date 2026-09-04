@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="GoldMeridian.Reflection.Tests/GoldMeridian.Reflection.Tests.csproj" />
+  <Project Path="GoldMeridian.Reflection/GoldMeridian.Reflection.csproj" />
+</Solution>
