@@ -215,4 +215,24 @@ public static class EventReferenceTests
 
         void Handler(object? o, EventArgs eventArgs) { }
     }
+    
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Add_WithTypeCoercion(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, Action<object?, object>>(eventName);
+
+        var count = 0;
+
+        Assert.That(reference.TryAdd(subject, Handler), Is.True);
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? o, object eventArgs) => count++;
+    }
 }
