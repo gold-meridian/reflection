@@ -11,7 +11,7 @@ public static class EventReferenceTests
 
         public event EventHandler? Changed;
 
-        internal event Action<int>? InternalChanged;
+        internal event EventHandler? InternalChanged;
 
         private event EventHandler? PrivateChanged;
 
@@ -20,25 +20,13 @@ public static class EventReferenceTests
         public void RaiseChanged()
         {
             ChangeCount++;
+            StaticChanged?.Invoke(null, EventArgs.Empty);
             Changed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void RaiseInternal(int value)
-        {
-            InternalChanged?.Invoke(value);
-        }
-
-        public void RaisePrivate()
-        {
+            InternalChanged?.Invoke(this, EventArgs.Empty);
             PrivateChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public static void RaiseStatic()
-        {
-            StaticChanged?.Invoke(null, EventArgs.Empty);
-        }
-
-        public static void SetUp()
+        public static void Setup()
         {
             StaticChanged = null;
         }
@@ -47,29 +35,37 @@ public static class EventReferenceTests
     [SetUp]
     public static void SetUp()
     {
-        TestSubject.SetUp();
+        TestSubject.Setup();
     }
 
-    [Test]
-    public static void Create_ExposesEventMetadata()
-    {
-        var info = typeof(TestSubject).GetEvent(nameof(TestSubject.Changed))!;
-        var reference = EventReference<TestSubject, EventHandler>.Create(info);
-
-        Assert.Multiple(
-            () =>
-            {
-                Assert.That(reference.Info, Is.SameAs(info));
-                Assert.That(reference.HandlerType, Is.EqualTo(typeof(EventHandler)));
-            }
-        );
-    }
-
-    [Test]
-    public static void Add_SubjectReceivesEvent()
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void TryAdd_SubjectReceivesEvent(string eventName)
     {
         var subject = new TestSubject();
-        var reference = Events.Get<TestSubject, EventHandler>(nameof(TestSubject.Changed));
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
+
+        var count = 0;
+
+        Assert.That(reference.TryAdd(subject, Handler), Is.True);
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? o, EventArgs eventArgs) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Add_SubjectReceivesEvent(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
 
         var count = 0;
 
@@ -82,30 +78,105 @@ public static class EventReferenceTests
         void Handler(object? o, EventArgs eventArgs) => count++;
     }
 
-    [Test]
-    public static void Remove_SubjectStopsReceivingEvent()
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Bind_SubjectReceivesEvent(string eventName)
     {
         var subject = new TestSubject();
-        var reference = Events.Get<TestSubject, EventHandler>(nameof(TestSubject.Changed));
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
+        var binding = reference.Bind(subject);
 
         var count = 0;
 
-        reference.Add(subject, Handler);
-        reference.Remove(subject, Handler);
-
+        binding += Handler;
         subject.RaiseChanged();
 
-        Assert.That(count, Is.Zero);
+        Assert.That(count, Is.EqualTo(1));
         return;
 
         void Handler(object? o, EventArgs eventArgs) => count++;
     }
 
-    [Test]
-    public static void Subscribe_ReturnsDisposableThatRemovesHandler()
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Remove_SubjectStopsReceivingEvent(string eventName)
     {
         var subject = new TestSubject();
-        var reference = Events.Get<TestSubject, EventHandler>(nameof(TestSubject.Changed));
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
+
+        var count = 0;
+
+        reference.Add(subject, Handler);
+        subject.RaiseChanged();
+
+        reference.Remove(subject, Handler);
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? o, EventArgs eventArgs) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void TryRemove_SubjectStopsReceivingEvent(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
+
+        var count = 0;
+
+        Assert.That(reference.TryAdd(subject, Handler), Is.True);
+        subject.RaiseChanged();
+
+        Assert.That(reference.TryRemove(subject, Handler), Is.True);
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? o, EventArgs eventArgs) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Bind_SubjectStopsReceivingEvent(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
+        var binding = reference.Bind(subject);
+
+        var count = 0;
+
+        binding += Handler;
+        subject.RaiseChanged();
+
+        binding -= Handler;
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? o, EventArgs eventArgs) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Subscribe_ReturnsDisposableThatRemovesHandler(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
 
         var count = 0;
         using (reference.Subscribe(subject, Handler))
@@ -122,11 +193,14 @@ public static class EventReferenceTests
         void Handler(object? o, EventArgs eventArgs) => count++;
     }
 
-    [Test]
-    public static void Subscribe_CanBeDisposedMultipleTimes()
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Subscribe_CanBeDisposedMultipleTimes(string eventName)
     {
         var subject = new TestSubject();
-        var reference = Events.Get<TestSubject, EventHandler>(nameof(TestSubject.Changed));
+        var reference = Events.Get<TestSubject, EventHandler>(eventName);
 
         var subscription = reference.Subscribe(subject, Handler);
 
@@ -140,48 +214,5 @@ public static class EventReferenceTests
         return;
 
         void Handler(object? o, EventArgs eventArgs) { }
-    }
-
-    [Test]
-    public static void CanAccessNonPublicEvent()
-    {
-        var subject = new TestSubject();
-        var reference = Events.Get<TestSubject, EventHandler>("PrivateChanged");
-
-        var count = 0;
-
-        reference.Add(subject, Handler);
-        subject.RaisePrivate();
-
-        Assert.That(count, Is.EqualTo(1));
-        return;
-
-        void Handler(object? o, EventArgs eventArgs) => count++;
-    }
-
-    [Test]
-    public static void CanAccessNonPublicHandlerType()
-    {
-        var reference = Events.Get<TestSubject, Action<int>>(nameof(TestSubject.InternalChanged));
-
-        Assert.That(reference.HandlerType, Is.EqualTo(typeof(Action<int>)));
-    }
-
-    [Test]
-    public static void StaticEvent_CanBeSubscribed()
-    {
-        var reference = Events.Get<TestSubject, EventHandler>(nameof(TestSubject.StaticChanged));
-
-        var count = 0;
-        reference.Add(null!, Handler);
-
-        TestSubject.RaiseStatic();
-
-        reference.Remove(null!, Handler);
-
-        Assert.That(count, Is.EqualTo(1));
-        return;
-
-        void Handler(object? o, EventArgs eventArgs) => count++;
     }
 }

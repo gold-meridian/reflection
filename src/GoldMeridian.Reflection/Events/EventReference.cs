@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -10,8 +9,6 @@ public sealed partial class EventReference<TTarget, THandler>
     where THandler : Delegate
 {
     private delegate void Accessor(TTarget? target, THandler handler);
-
-    private delegate void StaticAccessorForTypeChecking(THandler handler);
 
     public EventInfo Info { get; }
 
