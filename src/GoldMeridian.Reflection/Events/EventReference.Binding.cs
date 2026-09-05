@@ -2,14 +2,14 @@
 
 partial class EventReference<TTarget, THandler>
 {
-    public readonly struct BoundEvent
+    public readonly ref struct BoundEvent
     {
         private readonly EventReference<TTarget, THandler> @event;
-        private readonly TTarget target;
+        private readonly TTarget? target;
 
         internal BoundEvent(
             EventReference<TTarget, THandler> @event,
-            TTarget target
+            TTarget? target
         )
         {
             this.@event = @event;
@@ -29,7 +29,7 @@ partial class EventReference<TTarget, THandler>
         }
     }
 
-    public BoundEvent Bind(TTarget target)
+    public BoundEvent Bind(TTarget? target)
     {
         return new BoundEvent(this, target);
     }
