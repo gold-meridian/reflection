@@ -1,180 +1,262 @@
-﻿using System;
-using System.Linq;
+using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
 namespace GoldMeridian.Reflection;
 
+/// <summary>
+///     A strongly typed reference to an event, providing its accessors
+///     (including any non-public ones).
+/// </summary>
+/// <typeparam name="TTarget">The type of the target object.</typeparam>
+/// <typeparam name="THandler">The delegate type.</typeparam>
 public sealed partial class EventReference<TTarget, THandler>
     where THandler : Delegate
 {
-    private delegate void Accessor(TTarget? target, THandler handler);
+    private delegate void Accessor(TTarget? target, THandler? handler);
+
+    private static readonly ConditionalWeakTable<EventInfo, EventReference<TTarget, THandler>> cache = new();
 
     public EventInfo Info { get; }
 
+    /// <summary>
+    ///     The handler type accepted by this reference.
+    /// </summary>
     public Type HandlerType => typeof(THandler);
+
+    /// <summary>
+    ///     The actual delegate type declared by the event.
+    /// </summary>
+    public Type EventHandlerType { get; }
+
+    [MemberNotNullWhen(returnValue: true, "add")]
+    public bool CanAdd => add is not null;
+
+    [MemberNotNullWhen(returnValue: true, "remove")]
+    public bool CanRemove => remove is not null;
+
+    public bool IsStatic { get; }
 
     private readonly Accessor? add;
     private readonly Accessor? remove;
+    private readonly Type declaringType;
+    private readonly bool checkTargetType;
 
     private EventReference(
         EventInfo info,
-        Accessor? add,
-        Accessor? remove
+        Type handlerType,
+        MethodInfo? addMethod,
+        MethodInfo? removeMethod
     )
     {
+        var method = (addMethod ?? removeMethod)!;
+        var adapter = EventHandlerAdapter.Get(handlerType);
+
         Info = info;
-        this.add = add;
-        this.remove = remove;
+        EventHandlerType = handlerType;
+        IsStatic = method.IsStatic;
+        declaringType = method.DeclaringType!;
+        checkTargetType = !declaringType.IsAssignableFrom(typeof(TTarget));
+        add = CreateAccessor(addMethod, adapter);
+        remove = CreateAccessor(removeMethod, adapter);
     }
 
+    /// <summary>
+    ///     Returns <see langword="false"/> only when the event has no
+    ///     <see langword="add"/> accessor.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryAdd(TTarget? target, THandler handler)
+    public bool TryAdd(TTarget? target, THandler? handler)
     {
         if (add is null)
         {
             return false;
         }
 
-        add.Invoke(target, handler);
+        ValidateTarget(target);
+        add(target, handler);
         return true;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Add(TTarget? target, THandler handler)
+    public void Add(TTarget? target, THandler? handler)
     {
-        add?.Invoke(target, handler);
+        if (!TryAdd(target, handler))
+        {
+            throw new InvalidOperationException($"Event '{Info.Name}' has no add accessor.");
+        }
     }
 
+    /// <summary>
+    ///     Returns <see langword="false"/> only when the event has no
+    ///     <see langword="remove"/> accessor.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(TTarget? target, THandler handler)
+    public bool TryRemove(TTarget? target, THandler? handler)
     {
         if (remove is null)
         {
             return false;
         }
 
-        remove.Invoke(target, handler);
+        ValidateTarget(target);
+        remove(target, handler);
         return true;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Remove(TTarget? target, THandler handler)
+    public void Remove(TTarget? target, THandler? handler)
     {
-        remove?.Invoke(target, handler);
+        if (!TryRemove(target, handler))
+        {
+            throw new InvalidOperationException($"Event '{Info.Name}' has no remove accessor.");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ValidateTarget(TTarget? target)
+    {
+        if (!IsStatic && (target is null || (checkTargetType && !declaringType.IsInstanceOfType(target))))
+        {
+            throw new TargetException($"Event '{Info.Name}' requires an instance of '{declaringType}'.");
+        }
     }
 
     public static EventReference<TTarget, THandler> Create(EventInfo info)
     {
-        if (info is null)
-        {
-            throw new ArgumentNullException(nameof(info));
-        }
+        ArgumentNullException.ThrowIfNull(info);
+        return cache.GetValue(info, static value => CreateCore(value));
+    }
 
-        /*
-        if (info.EventHandlerType != typeof(THandler))
+    private static EventReference<TTarget, THandler> CreateCore(EventInfo info)
+    {
+        var handlerType = info.EventHandlerType;
+        if (handlerType is null
+         || handlerType.ContainsGenericParameters
+         || !handlerType.IsSubclassOf(typeof(MulticastDelegate))
+         || typeof(THandler).GetMethod("Invoke") is not { } handlerInvoke)
         {
-            throw new ArgumentException($"Event handler type '{info.EventHandlerType}' does not match expected type '{typeof(THandler)}'.", nameof(info));
-        }
-        */
-
-        if (info.EventHandlerType is null)
-        {
-            throw new ArgumentException($"Event handler type '{info.EventHandlerType}' is null.", nameof(info));
-        }
-
-        if (typeof(THandler).GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance) is not { } handlerInvoke)
-        {
-            throw new ArgumentException($"Stubbed handler type '{typeof(THandler)}' does not have an 'Invoke' method.", nameof(info));
+            throw new ArgumentException("The event and handler must have closed, concrete delegate types.", nameof(info));
         }
 
         var add = info.GetAddMethod(nonPublic: true);
         var remove = info.GetRemoveMethod(nonPublic: true);
-
-        /*
-        Debug.Assert(add?.IsStatic == remove?.IsStatic);
-        var isStatic = add?.IsStatic ?? remove?.IsStatic;
-        if (!isStatic.HasValue)
+        if (add is null && remove is null)
         {
-            throw new ArgumentException($"Event handler '{info.Name}' had no add or remove method.", nameof(info));
-        }
-        */
-
-        // Ensure the actual type is compatible, otherwise throw.  Sort of sucks
-        // that we have to use this API for this, but whatever.
-
-        if (add?.GetParameters().LastOrDefault() is { } addParam)
-        {
-            handlerInvoke.CreateDelegate(
-                addParam.ParameterType,
-                target: null
-            );
+            throw new ArgumentException("The event has neither an add nor a remove accessor.", nameof(info));
         }
 
-        if (remove?.GetParameters().LastOrDefault() is { } removeParam)
+        ValidateAccessor(add, handlerType, nameof(info));
+        ValidateAccessor(remove, handlerType, nameof(info));
+        if (add is not null
+         && remove is not null
+         && (add.IsStatic != remove.IsStatic || add.DeclaringType != remove.DeclaringType))
         {
-            handlerInvoke.CreateDelegate(
-                removeParam.ParameterType,
-                target: null
-            );
+            throw new ArgumentException("Event accessors must agree on their declaring type and static-ness.", nameof(info));
         }
 
-        return new EventReference<TTarget, THandler>(
-            info,
-            CreateAccessor(add),
-            CreateAccessor(remove)
-        );
+        // TODO: Can we remove this restriction later?
+        if (!(add ?? remove)!.IsStatic && typeof(TTarget).IsValueType)
+        {
+            throw new ArgumentException("Instance events require a reference target. Use object or an interface to retain a boxed struct.", nameof(info));
+        }
+
+        if (handlerType != typeof(THandler))
+        {
+            // The possible allocation is annoying, but CreateDelegate will
+            // throw for us, so we can use it to validate variance, by-ref
+            // parameters, and returns.
+            _ = handlerInvoke.CreateDelegate(handlerType, target: null);
+        }
+
+        return new EventReference<TTarget, THandler>(info, handlerType, add, remove);
     }
 
-    private static Accessor? CreateAccessor(MethodInfo? method)
+    private static void ValidateAccessor(MethodInfo? method, Type handlerType, string paramName)
+    {
+        if (method is null)
+        {
+            return;
+        }
+
+        var parameters = method.GetParameters();
+        if (method.DeclaringType is null
+         || method.ContainsGenericParameters
+         || method.ReturnType != typeof(void)
+         || parameters.Length != 1
+         || parameters[0].ParameterType != handlerType
+         || method is { IsStatic: true, IsAbstract: true }
+         || (method.CallingConvention & CallingConventions.VarArgs) != 0)
+        {
+            throw new ArgumentException("The event has an unsupported accessor signature.", paramName);
+        }
+    }
+
+    // TODO: Test IsDynamicCodeSupported
+    private static Accessor? CreateAccessor(MethodInfo? method, EventHandlerAdapter adapter)
     {
         if (method is null)
         {
             return null;
         }
 
-        var handlerType = method.GetParameters().Last().ParameterType;
-        if (handlerType != typeof(THandler))
+        // For exact, invariant signatures, we don't need to generate anything.
+        // For variant types, we should inline normalization into the call
+        // itself to avoid an extra delegate dispatch.
+        if (adapter.HandlerType == typeof(THandler) && (!adapter.HasVariance || !RuntimeFeature.IsDynamicCodeSupported))
         {
-            return (instance, handler) => method.Invoke(
-                method.IsStatic ? null : instance,
-                [ConvertHandler(handler, handlerType)]
+            if (method.IsStatic)
+            {
+                var invoke = method.CreateDelegate<Action<THandler?>>();
+                if (!adapter.HasVariance)
+                {
+                    return (_, handler) => invoke(handler);
+                }
+
+                return (_, handler) => invoke((THandler?)adapter.Convert(handler));
+            }
+
+            if (!method.DeclaringType!.IsValueType && method.DeclaringType.IsAssignableFrom(typeof(TTarget)))
+            {
+                var invoke = method.CreateDelegate<Accessor>();
+                if (!adapter.HasVariance)
+                {
+                    return invoke;
+                }
+
+                return (target, handler) => invoke(target, (THandler?)adapter.Convert(handler));
+            }
+        }
+
+        if (!RuntimeFeature.IsDynamicCodeSupported)
+        {
+            // Unfortunate slow path with reflection when no JIT is available to
+            // us.
+            return (target, handler) => method.Invoke(
+                method.IsStatic ? null : target,
+                BindingFlags.DoNotWrapExceptions,
+                binder: null,
+                [adapter.Convert(handler)],
+                culture: null
             );
         }
 
-        if (method.IsStatic)
+        var instance = Expression.Parameter(typeof(TTarget), "target");
+        var handlerParameter = Expression.Parameter(typeof(THandler), "handler");
+        var converted = Expression.Convert(
+            Expression.Call(Expression.Constant(adapter), nameof(EventHandlerAdapter.Convert), Type.EmptyTypes, handlerParameter),
+            adapter.HandlerType
+        );
+        var targetExpression = default(Expression);
+        if (!method.IsStatic)
         {
-            // Static methods need a wrapper to ignore the instance parameter.
-            return (_, handler) => method.Invoke(null, [handler]);
+            targetExpression = method.DeclaringType!.IsValueType
+                ? Expression.Unbox(instance, method.DeclaringType)
+                : Expression.Convert(instance, method.DeclaringType);
         }
 
-        try
-        {
-            return (Accessor)Delegate.CreateDelegate(typeof(Accessor), method);
-        }
-        catch
-        {
-            // Unfortunate slow path when the delegates aren't identical.
-            return (instance, handler) => method.Invoke(instance, [handler]);
-        }
-    }
-
-    private static Delegate? ConvertHandler(THandler? handler, Type handlerType)
-    {
-        if (handler is null || handlerType.IsInstanceOfType(handler))
-        {
-            return handler;
-        }
-
-        var converted = default(Delegate);
-        foreach (var entry in handler.GetInvocationList())
-        {
-            // We need to rebind each entry rather than just wrapping Invoke so
-            // we can preserve multicast semantics and so delegate equality is
-            // correct when attempting to remove an equivalent handler.
-            converted = Delegate.Combine(converted, entry.Method.CreateDelegate(handlerType, entry.Target));
-        }
-
-        return converted;
+        return Expression.Lambda<Accessor>(Expression.Call(targetExpression, method, converted), instance, handlerParameter).Compile();
     }
 }

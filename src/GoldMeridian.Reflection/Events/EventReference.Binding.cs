@@ -2,9 +2,9 @@
 
 partial class EventReference<TTarget, THandler>
 {
-    public readonly ref struct BoundEvent
+    public readonly struct BoundEvent
     {
-        private readonly EventReference<TTarget, THandler> @event;
+        private readonly EventReference<TTarget, THandler>? @event;
         private readonly TTarget? target;
 
         internal BoundEvent(
@@ -16,14 +16,24 @@ partial class EventReference<TTarget, THandler>
             this.target = target;
         }
 
-        public static BoundEvent operator +(BoundEvent @event, THandler handler)
+        public static BoundEvent operator +(BoundEvent @event, THandler? handler)
         {
+            if (@event.@event is null)
+            {
+                throw new System.InvalidOperationException("The event binding is uninitialized.");
+            }
+
             @event.@event.Add(@event.target, handler);
             return @event;
         }
 
-        public static BoundEvent operator -(BoundEvent @event, THandler handler)
+        public static BoundEvent operator -(BoundEvent @event, THandler? handler)
         {
+            if (@event.@event is null)
+            {
+                throw new System.InvalidOperationException("The event binding is uninitialized.");
+            }
+
             @event.@event.Remove(@event.target, handler);
             return @event;
         }
@@ -31,6 +41,7 @@ partial class EventReference<TTarget, THandler>
 
     public BoundEvent Bind(TTarget? target)
     {
+        ValidateTarget(target);
         return new BoundEvent(this, target);
     }
 }

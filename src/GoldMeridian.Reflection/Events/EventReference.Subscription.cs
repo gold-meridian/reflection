@@ -1,31 +1,68 @@
 ﻿using System;
+using System.Threading;
 
 namespace GoldMeridian.Reflection;
 
 partial class EventReference<TTarget, THandler>
 {
+    // Split between Subscription scope and real state so copies and concurrency
+    // don't result in attempts to dispose of Subscription twice.
     public readonly struct Subscription : IDisposable
     {
-        private readonly EventReference<TTarget, THandler> reference;
-        private readonly TTarget? target;
-        private readonly THandler handler;
+        private readonly SubscriptionState? state;
 
-        internal Subscription(EventReference<TTarget, THandler> reference, TTarget? target, THandler handler)
+        internal Subscription(EventReference<TTarget, THandler> reference, TTarget? target, THandler? handler)
         {
-            this.reference = reference;
-            this.target = target;
-            this.handler = handler;
+            state = new SubscriptionState(reference, target, handler);
         }
 
         public void Dispose()
         {
-            reference.Remove(target, handler);
+            state?.Dispose();
         }
     }
 
-    public Subscription Subscribe(TTarget? target, THandler handler)
+    private sealed class SubscriptionState(EventReference<TTarget, THandler> reference, TTarget? target, THandler? handler)
     {
-        Add(target, handler);
-        return new Subscription(this, target, handler);
+        private EventReference<TTarget, THandler>? reference = reference;
+        private TTarget? target = target;
+        private THandler? handler = handler;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref reference, null);
+            if (owner is null)
+            {
+                return;
+            }
+
+            try
+            {
+                owner.Remove(target, handler);
+            }
+            finally
+            {
+                target = default(TTarget?);
+                handler = null;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Adds a handler that and returns an object that, when disposed,
+    ///     removes the handler.  Requires both accessors.
+    /// </summary>
+    public Subscription Subscribe(TTarget? target, THandler? handler)
+    {
+        if (!CanAdd || !CanRemove)
+        {
+            throw new InvalidOperationException($"Event '{Info.Name}' requires both accessors for a disposable subscription.");
+        }
+
+        var subscription = new Subscription(this, target, handler);
+        {
+            Add(target, handler);
+        }
+        return subscription;
     }
 }
