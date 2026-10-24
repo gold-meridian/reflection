@@ -133,6 +133,15 @@ public sealed partial class EventReference<TTarget, THandler>
             return null;
         }
 
+        var handlerType = method.GetParameters().Last().ParameterType;
+        if (handlerType != typeof(THandler))
+        {
+            return (instance, handler) => method.Invoke(
+                method.IsStatic ? null : instance,
+                [ConvertHandler(handler, handlerType)]
+            );
+        }
+
         if (method.IsStatic)
         {
             // Static methods need a wrapper to ignore the instance parameter.
@@ -148,5 +157,24 @@ public sealed partial class EventReference<TTarget, THandler>
             // Unfortunate slow path when the delegates aren't identical.
             return (instance, handler) => method.Invoke(instance, [handler]);
         }
+    }
+
+    private static Delegate? ConvertHandler(THandler? handler, Type handlerType)
+    {
+        if (handler is null || handlerType.IsInstanceOfType(handler))
+        {
+            return handler;
+        }
+
+        var converted = default(Delegate);
+        foreach (var entry in handler.GetInvocationList())
+        {
+            // We need to rebind each entry rather than just wrapping Invoke so
+            // we can preserve multicast semantics and so delegate equality is
+            // correct when attempting to remove an equivalent handler.
+            converted = Delegate.Combine(converted, entry.Method.CreateDelegate(handlerType, entry.Target));
+        }
+
+        return converted;
     }
 }

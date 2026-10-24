@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Reflection;
 
 namespace GoldMeridian.Reflection.Tests;
 
@@ -215,7 +217,7 @@ public static class EventReferenceTests
 
         void Handler(object? o, EventArgs eventArgs) { }
     }
-    
+
     [TestCase("StaticChanged")]
     [TestCase("Changed")]
     [TestCase("InternalChanged")]
@@ -234,5 +236,101 @@ public static class EventReferenceTests
         return;
 
         void Handler(object? o, object eventArgs) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Remove_WithTypeCoercion(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, Action<object?, object>>(eventName);
+        var count = 0;
+
+        reference.Add(subject, Handler);
+        subject.RaiseChanged();
+
+        // Need to make sure that attempting to remove with a NEW delegate
+        // succeeds.
+        reference.Remove(subject, Handler);
+        subject.RaiseChanged();
+
+        Assert.That(count, Is.EqualTo(1));
+        return;
+
+        void Handler(object? sender, object args) => count++;
+    }
+
+    [TestCase("StaticChanged")]
+    [TestCase("Changed")]
+    [TestCase("InternalChanged")]
+    [TestCase("PrivateChanged")]
+    public static void Subscribe_WithTypeCoercion_PreservesMulticastRemoval(string eventName)
+    {
+        var subject = new TestSubject();
+        var reference = Events.Get<TestSubject, Action<object?, object>>(eventName);
+
+        var calls = new List<int>();
+        Action<object?, object> first = (_, _) => calls.Add(1);
+        Action<object?, object> second = (_, _) => calls.Add(2);
+
+        // Ensure first is run, then second.  Then remove second and ensure
+        // first is run.
+        using (reference.Subscribe(subject, first + second))
+        {
+            subject.RaiseChanged();
+            reference.Remove(subject, second);
+            subject.RaiseChanged();
+        }
+
+        // Remove the remaining first and ensure nothing is run.
+        reference.Remove(subject, first);
+        subject.RaiseChanged();
+
+        Assert.That(calls, Is.EqualTo(new[] { 1, 2, 1 }));
+    }
+
+    private sealed class HiddenSubject
+    {
+        private sealed class HiddenArgs : EventArgs;
+
+        private event Action<HiddenArgs>? Changed;
+
+        public void RaiseChanged() => Changed?.Invoke(new HiddenArgs());
+    }
+
+    [Test]
+    public static void Subscribe_WithPrivateParameterType_UsesAccessibleBaseType()
+    {
+        object subject = new HiddenSubject();
+        var info = subject.GetType().GetEvent("Changed", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var reference = EventReference<object, Action<EventArgs>>.Create(info);
+
+        var received = default(EventArgs);
+        var count = 0;
+
+        using (reference.Subscribe(
+                   subject,
+                   args =>
+                   {
+                       received = args;
+                       count++;
+                   }
+               ))
+        {
+            ((HiddenSubject)subject).RaiseChanged();
+        }
+
+        ((HiddenSubject)subject).RaiseChanged();
+        Assert.That(received, Is.Not.Null);
+        Assert.That(received!.GetType().IsNestedPrivate, Is.True);
+        Assert.That(count, Is.EqualTo(1));
+    }
+
+    [Test]
+    public static void Create_WithIncompatibleParameterType_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => Events.Get<TestSubject, Action<object, string>>("Changed"));
     }
 }
