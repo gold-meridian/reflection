@@ -78,9 +78,12 @@ public static class EventPerformanceTests
 
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        Assert.That(allocated, Is.Zero);
-        Assert.That(subject.Changes, Is.Zero);
-        Assert.That(Subject.StaticChanges, Is.Zero);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(allocated, Is.Zero);
+            Assert.That(subject.Changes, Is.Zero);
+            Assert.That(Subject.StaticChanges, Is.Zero);
+        }
     }
 
     // TODO: No actual assertions, mostly diagnostics (can we at least assert

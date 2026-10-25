@@ -18,6 +18,7 @@ public sealed partial class EventReference<TTarget, THandler>
     private delegate void Accessor(TTarget? target, THandler? handler);
 
     private static readonly ConditionalWeakTable<EventInfo, EventReference<TTarget, THandler>> cache = new();
+    private static readonly ConditionalWeakTable<EventInfo, EventReference<TTarget, THandler>> downcast_cache = new();
 
     public EventInfo Info { get; }
 
@@ -30,6 +31,12 @@ public sealed partial class EventReference<TTarget, THandler>
     ///     The actual delegate type declared by the event.
     /// </summary>
     public Type EventHandlerType { get; }
+
+    /// <summary>
+    ///     Whether checked reference downcasts are permitted for handler
+    ///     parameters.
+    /// </summary>
+    public bool AllowsParameterDowncasts { get; }
 
     [MemberNotNullWhen(returnValue: true, "add")]
     public bool CanAdd => add is not null;
@@ -48,14 +55,16 @@ public sealed partial class EventReference<TTarget, THandler>
         EventInfo info,
         Type handlerType,
         MethodInfo? addMethod,
-        MethodInfo? removeMethod
+        MethodInfo? removeMethod,
+        bool allowParameterDowncasts
     )
     {
         var method = (addMethod ?? removeMethod)!;
-        var adapter = EventHandlerAdapter.Get(handlerType);
+        var adapter = EventHandlerAdapter.Get(handlerType, allowParameterDowncasts);
 
         Info = info;
         EventHandlerType = handlerType;
+        AllowsParameterDowncasts = allowParameterDowncasts;
         IsStatic = method.IsStatic;
         declaringType = method.DeclaringType!;
         checkTargetType = !declaringType.IsAssignableFrom(typeof(TTarget));
@@ -124,13 +133,16 @@ public sealed partial class EventReference<TTarget, THandler>
         }
     }
 
-    public static EventReference<TTarget, THandler> Create(EventInfo info)
+    public static EventReference<TTarget, THandler> Create(EventInfo info, bool allowParameterDowncasts = false)
     {
         ArgumentNullException.ThrowIfNull(info);
-        return cache.GetValue(info, static value => CreateCore(value));
+
+        return allowParameterDowncasts
+            ? downcast_cache.GetValue(info, static value => CreateCore(value, allowParameterDowncasts: true))
+            : cache.GetValue(info, static value => CreateCore(value, allowParameterDowncasts: false));
     }
 
-    private static EventReference<TTarget, THandler> CreateCore(EventInfo info)
+    private static EventReference<TTarget, THandler> CreateCore(EventInfo info, bool allowParameterDowncasts)
     {
         var handlerType = info.EventHandlerType;
         if (handlerType is null
@@ -165,13 +177,20 @@ public sealed partial class EventReference<TTarget, THandler>
 
         if (handlerType != typeof(THandler))
         {
-            // The possible allocation is annoying, but CreateDelegate will
-            // throw for us, so we can use it to validate variance, by-ref
-            // parameters, and returns.
-            _ = handlerInvoke.CreateDelegate(handlerType, target: null);
+            if (allowParameterDowncasts)
+            {
+                EventHandlerAdapter.Get(handlerType, allowParameterDowncasts: true).ValidateDowncasts(typeof(THandler));
+            }
+            else
+            {
+                // The possible allocation is annoying, but CreateDelegate will
+                // throw for us, so we can use it to validate variance, by-ref
+                // parameters, and returns.
+                _ = handlerInvoke.CreateDelegate(handlerType, target: null);
+            }
         }
 
-        return new EventReference<TTarget, THandler>(info, handlerType, add, remove);
+        return new EventReference<TTarget, THandler>(info, handlerType, add, remove, allowParameterDowncasts);
     }
 
     private static void ValidateAccessor(MethodInfo? method, Type handlerType, string paramName)

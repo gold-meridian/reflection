@@ -324,8 +324,11 @@ public static class EventReferenceTests
 
         ((HiddenSubject)subject).RaiseChanged();
         Assert.That(received, Is.Not.Null);
-        Assert.That(received!.GetType().IsNestedPrivate, Is.True);
-        Assert.That(count, Is.EqualTo(1));
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(received!.GetType().IsNestedPrivate, Is.True);
+            Assert.That(count, Is.EqualTo(1));
+        }
     }
 
     [Test]

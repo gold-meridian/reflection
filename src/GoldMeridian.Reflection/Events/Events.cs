@@ -10,14 +10,20 @@ namespace GoldMeridian.Reflection;
 /// </summary>
 public static class Events
 {
-    public static bool TryGet<T, THandler>(string name, [NotNullWhen(returnValue: true)] out EventReference<T, THandler>? eventReference)
+    public static EventWrapper<THandler> Wrap<T, THandler>(T? target, string name, bool allowParameterDowncasts = false)
+        where THandler : Delegate
+    {
+        return Get<T, THandler>(name, allowParameterDowncasts).Wrap(target);
+    }
+
+    public static bool TryGet<T, THandler>(string name, [NotNullWhen(returnValue: true)] out EventReference<T, THandler>? eventReference, bool allowParameterDowncasts = false)
         where THandler : Delegate
     {
         ArgumentNullException.ThrowIfNull(name);
 
         if (typeof(T).GetEvent(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy) is { } eventInfo)
         {
-            eventReference = EventReference<T, THandler>.Create(eventInfo);
+            eventReference = EventReference<T, THandler>.Create(eventInfo, allowParameterDowncasts);
             return true;
         }
 
@@ -26,12 +32,12 @@ public static class Events
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static EventReference<T, THandler> Get<T, THandler>(string name)
+    public static EventReference<T, THandler> Get<T, THandler>(string name, bool allowParameterDowncasts = false)
         where THandler : Delegate
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (!TryGet<T, THandler>(name, out var eventReference))
+        if (!TryGet<T, THandler>(name, out var eventReference, allowParameterDowncasts))
         {
             throw new MissingMemberException($"Event '{name}' not found on type '{typeof(T).FullName}'");
         }

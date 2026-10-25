@@ -182,7 +182,7 @@ public static class EventMetadataTests
         var subject = new GenericSource<string>();
 
         object? received = null;
-        var reference = Events.Get<GenericSource<string>, Action<object>>(nameof(GenericSource<string>.Changed));
+        var reference = Events.Get<GenericSource<string>, Action<object>>(nameof(GenericSource<>.Changed));
         using (reference.Subscribe(subject, value => received = value))
         {
             subject.Raise("hello");
@@ -199,8 +199,12 @@ public static class EventMetadataTests
         Assert.Throws<ArgumentNullException>(() => EventReference<object, Action>.Create(null!));
         Assert.Throws<ArgumentNullException>(() => Events.Get<BaseSource, Action>(null!));
         Assert.Throws<MissingMemberException>(() => Events.Get<BaseSource, Action>("missing"));
-        Assert.That(Events.TryGet<BaseSource, Action>("missing", out var missing), Is.False);
-        Assert.That(missing, Is.Null);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(Events.TryGet<BaseSource, Action>("missing", out var missing), Is.False);
+            Assert.That(missing, Is.Null);
+        }
+
         Assert.Throws<ArgumentException>(() => Events.Get<BaseSource, Delegate>(nameof(BaseSource.Changed)));
         Assert.Throws<ArgumentException>(() => Events.Get<BaseSource, MulticastDelegate>(nameof(BaseSource.Changed)));
         Assert.That(

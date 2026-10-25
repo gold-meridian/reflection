@@ -8,8 +8,8 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 // These edge cases were primarily sourced from ChatGPT and thus aren't as well-
-// scoped as the rest of the test suite. That's the nature of edge cases though,
-// and these did catch some scarier bugs.
+// scoped as the rest of the test suite. That's the nature of edge cases,
+// though, and these did catch some scarier bugs.
 
 namespace GoldMeridian.Reflection.Tests;
 
@@ -172,8 +172,9 @@ public static class EventReferenceEdgeCaseTests
         }
     }
 
-    [Test]
-    public static void Coercion_UnmanagedDelegate_PreservesFunctionPointerAndRemoval()
+    [TestCase(false)]
+    [TestCase(true)]
+    public static void Coercion_UnmanagedDelegate_PreservesFunctionPointerAndRemoval(bool allowParameterDowncasts)
     {
         // chatgpt suggested these cases for the native function, no idea if
         // anything but windows works right now
@@ -201,7 +202,7 @@ public static class EventReferenceEdgeCaseTests
             var equal = (NativeHandler)handler.Clone();
             reference.Remove(subject, equal);
             Assert.That(subject.Raise(), Is.EqualTo(handler()));
-            EventReference<object, NativeHandler>.Create(reference.Info).Remove(subject, equal);
+            EventReference<object, NativeHandler>.Create(reference.Info, allowParameterDowncasts).Remove(subject, equal);
             Assert.That(subject.Raise(), Is.Null);
         }
         finally
@@ -376,8 +377,11 @@ public static class EventReferenceEdgeCaseTests
         Action<object> first = _ => throw exception;
         Action<object> second = _ => called = true;
         using var subscription = reference.Subscribe(subject, first + second);
-        Assert.That(Assert.Throws<AccessorException>(() => subject.Raise("test")), Is.SameAs(exception));
-        Assert.That(called, Is.False);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(Assert.Throws<AccessorException>(() => subject.Raise("test")), Is.SameAs(exception));
+            Assert.That(called, Is.False);
+        }
     }
 
     [Test]
@@ -636,9 +640,12 @@ public static class EventReferenceEdgeCaseTests
         var reference = Events.Get<CustomSubject, Action<object>>(nameof(CustomSubject.Tracked));
         reference.Add(subject, null!);
         reference.Remove(subject, null!);
-        Assert.That(subject.AddCount, Is.EqualTo(1));
-        Assert.That(subject.RemoveCount, Is.EqualTo(1));
-        Assert.That(subject.LastHandler, Is.Null);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(subject.AddCount, Is.EqualTo(1));
+            Assert.That(subject.RemoveCount, Is.EqualTo(1));
+            Assert.That(subject.LastHandler, Is.Null);
+        }
     }
 
     [Test]
@@ -657,8 +664,12 @@ public static class EventReferenceEdgeCaseTests
         var info = typeof(CustomSubject).GetEvent(nameof(CustomSubject.Tracked))!;
         var addOnly = EventReference<CustomSubject, Action<string>>.Create(new AccessorEvent(info, info.AddMethod, null));
         var removeOnly = EventReference<CustomSubject, Action<string>>.Create(new AccessorEvent(info, null, info.RemoveMethod));
-        Assert.That(addOnly.TryRemove(subject, null!), Is.False);
-        Assert.That(removeOnly.TryAdd(subject, null!), Is.False);
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(addOnly.TryRemove(subject, null!), Is.False);
+            Assert.That(removeOnly.TryAdd(subject, null!), Is.False);
+        }
+
         Assert.Throws<InvalidOperationException>(() => addOnly.Remove(subject, null!));
         Assert.Throws<InvalidOperationException>(() => removeOnly.Add(subject, null!));
         Assert.Throws<InvalidOperationException>(() => addOnly.Subscribe(subject, null!));

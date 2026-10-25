@@ -7,19 +7,33 @@ namespace GoldMeridian.Reflection;
 
 internal sealed class EventHandlerAdapter
 {
+    private sealed record InvocationAdapter(WeakReference<Delegate> Source, WeakReference<Delegate> Adapted);
+
     private static readonly ConditionalWeakTable<Type, EventHandlerAdapter> adapters = new();
+    private static readonly ConditionalWeakTable<Type, EventHandlerAdapter> downcast_adapters = new();
     private readonly ConditionalWeakTable<Delegate, Delegate> converted = new();
     private readonly ConditionalWeakTable<Delegate, WeakReference<Delegate>>? collectibleConverted;
     private readonly ConditionalWeakTable<Delegate, Delegate>.CreateValueCallback convert;
-    private readonly List<WeakReference<Delegate>> invocationAdapters = [];
+    private readonly List<InvocationAdapter> invocationAdapters;
+    private readonly ParameterDowncastCache? downcasts;
 
     public Type HandlerType { get; }
 
     public bool HasVariance { get; }
 
-    private EventHandlerAdapter(Type handlerType)
+    private EventHandlerAdapter(Type handlerType, bool allowParameterDowncasts)
     {
         HandlerType = handlerType;
+        if (allowParameterDowncasts)
+        {
+            downcasts = new ParameterDowncastCache(handlerType);
+            invocationAdapters = Get(handlerType).invocationAdapters;
+        }
+        else
+        {
+            invocationAdapters = [];
+        }
+
         if (handlerType.IsCollectible)
         {
             collectibleConverted = new ConditionalWeakTable<Delegate, WeakReference<Delegate>>();
@@ -32,9 +46,16 @@ internal sealed class EventHandlerAdapter
         convert = ConvertCore;
     }
 
-    public static EventHandlerAdapter Get(Type handlerType)
+    public static EventHandlerAdapter Get(Type handlerType, bool allowParameterDowncasts = false)
     {
-        return adapters.GetValue(handlerType, static type => new EventHandlerAdapter(type));
+        return allowParameterDowncasts
+            ? downcast_adapters.GetValue(handlerType, static type => new EventHandlerAdapter(type, allowParameterDowncasts: true))
+            : adapters.GetValue(handlerType, static type => new EventHandlerAdapter(type, allowParameterDowncasts: false));
+    }
+
+    public void ValidateDowncasts(Type sourceType)
+    {
+        _ = downcasts!.Get(sourceType);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -79,6 +100,11 @@ internal sealed class EventHandlerAdapter
 
     private Delegate ConvertEntry(Delegate entry)
     {
+        if (downcasts?.Get(entry.GetType()).Factory is { } factory)
+        {
+            return GetInvocationAdapter(entry, factory);
+        }
+
         var method = entry.Method;
         if (method.DeclaringType != entry.GetType() || method.Name != "Invoke" || entry.Target is not null)
         {
@@ -90,15 +116,21 @@ internal sealed class EventHandlerAdapter
         // delegate closed over null that loses the native pointer, which is
         // bad.  So we need to invoke the original delegate instead, where
         // possible.
+        return GetInvocationAdapter(entry, factory: null);
+    }
+
+    private Delegate GetInvocationAdapter(Delegate entry, Func<Delegate, Delegate>? factory)
+    {
         lock (invocationAdapters)
         {
             for (var i = invocationAdapters.Count - 1; i >= 0; i--)
             {
-                if (!invocationAdapters[i].TryGetTarget(out var existing))
+                var candidate = invocationAdapters[i];
+                if (!candidate.Adapted.TryGetTarget(out var existing) || !candidate.Source.TryGetTarget(out var source))
                 {
                     invocationAdapters.RemoveAt(i);
                 }
-                else if (entry.Equals(existing.Target))
+                else if (entry.Equals(source))
                 {
                     return existing;
                 }
@@ -106,10 +138,10 @@ internal sealed class EventHandlerAdapter
 
             // Now canonicalize equal delegates so cloned handlers and other
             // EventReferences can remove existing adapters.
-            var adapted = method.CreateDelegate(HandlerType, entry);
-            {
-                invocationAdapters.Add(new WeakReference<Delegate>(adapted));
-            }
+            var adapted = factory is null
+                ? entry.GetType().GetMethod("Invoke")!.CreateDelegate(HandlerType, entry)
+                : factory(entry);
+            invocationAdapters.Add(new InvocationAdapter(new WeakReference<Delegate>(entry), new WeakReference<Delegate>(adapted)));
             return adapted;
         }
     }
