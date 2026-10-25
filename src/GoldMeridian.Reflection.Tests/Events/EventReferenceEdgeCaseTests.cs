@@ -63,6 +63,45 @@ public static class EventReferenceEdgeCaseTests
         Assert.That(calls, Is.EqualTo(new[] { "exact:a", "broad:a", "exact:b" }));
     }
 
+    [Test]
+    public static void Coercion_DuplicateHandlers_RemoveLastOccurrenceOneAtATime()
+    {
+        var subject = new Subject();
+        var bound = Events.Get<Subject, Action<object>>(nameof(Subject.Text)).Bind(subject);
+        var calls = new List<string>();
+
+        bound += Handler;
+        bound += Middle;
+        bound += Handler;
+        subject.Raise("a");
+        Assert.That(calls, Is.EqualTo(new[] { "handler:a", "middle:a", "handler:a" }));
+
+        calls.Clear();
+        bound -= Handler;
+        subject.Raise("b");
+        Assert.That(calls, Is.EqualTo(new[] { "handler:b", "middle:b" }));
+
+        calls.Clear();
+        bound -= Handler;
+        subject.Raise("c");
+        Assert.That(calls, Is.EqualTo(new[] { "middle:c" }));
+
+        calls.Clear();
+        bound -= Handler;
+        subject.Raise("d");
+        Assert.That(calls, Is.EqualTo(new[] { "middle:d" }));
+
+        calls.Clear();
+        bound -= Middle;
+        subject.Raise("e");
+        Assert.That(calls, Is.Empty);
+        return;
+
+        void Handler(object value) => calls.Add("handler:" + value);
+
+        void Middle(object value) => calls.Add("middle:" + value);
+    }
+
     [TestCase("add")]
     [TestCase("try")]
     [TestCase("bind")]

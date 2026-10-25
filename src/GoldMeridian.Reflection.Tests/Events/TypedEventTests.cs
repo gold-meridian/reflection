@@ -97,6 +97,44 @@ public static class TypedEventTests
     }
 
     [Test]
+    public static void ExtensionProperty_DuplicateHandlers_RemoveLastOccurrenceOneAtATime()
+    {
+        var button = new Button();
+        var calls = new List<string>();
+
+        button.MouseDownTyped += Handler;
+        button.MouseDownTyped += Middle;
+        button.MouseDownTyped += Handler;
+        button.RaiseMouse();
+        Assert.That(calls, Is.EqualTo(new[] { "handler", "middle", "handler" }));
+
+        calls.Clear();
+        button.MouseDownTyped -= Handler;
+        button.RaiseMouse();
+        Assert.That(calls, Is.EqualTo(new[] { "handler", "middle" }));
+
+        calls.Clear();
+        button.MouseDownTyped -= Handler;
+        button.RaiseMouse();
+        Assert.That(calls, Is.EqualTo(new[] { "middle" }));
+
+        calls.Clear();
+        button.MouseDownTyped -= Handler;
+        button.RaiseMouse();
+        Assert.That(calls, Is.EqualTo(new[] { "middle" }));
+
+        calls.Clear();
+        button.MouseDownTyped -= Middle;
+        button.RaiseMouse();
+        Assert.That(calls, Is.Empty);
+        return;
+
+        void Handler(MouseArgs args, Button element) => calls.Add("handler");
+
+        void Middle(MouseArgs args, Button element) => calls.Add("middle");
+    }
+
+    [Test]
     public static void ExtensionProperties_SupportDifferentParameterPositionsAndCounts()
     {
         var button = new Button();
