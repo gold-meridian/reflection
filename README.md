@@ -6,6 +6,39 @@
 
 **GoldMeridian.Reflection** provides a handful of extra reflection utilities with the goal of making common operations safer and more elegant.
 
+## Type-Safe Member Selection
+
+`Members` provides APIs for retrieving `System.Reflection` metadata using compiler type-checked references to members.
+
+```cs
+MethodInfo method = Members.GetMethod(StaticType.Method);
+MethodInfo staticSelector = Members.GetMethod(() => StaticType.Method);
+MethodInfo unusedParameter = Members.GetMethod(_ => StaticType.Method);
+MethodInfo instanceMethod = Members.GetMethod<InstanceType>(x => x.Method);
+
+FieldInfo staticField = Members.GetField(_ => StaticType.Field);
+FieldInfo instanceField = Members.GetField<InstanceType>(x => x.Field);
+PropertyInfo property = Members.GetProperty<InstanceType>(x => x.Property);
+PropertyInfo indexer = Members.GetProperty<InstanceType>(x => x[0]);
+ConstructorInfo constructor = Members.GetConstructor(() => new InstanceType(0));
+```
+
+All expressions will be properly inspected without compiling or executing them. The parameter used in instanced cases is also purely symbolic; no instance of `InstanceType` will be created, for example, and no call with `default(InstanceType)` actually occurs. No expressions are actually evaluated.
+
+### Overloads and generics
+
+Specific overloads of methods can be selected with explicit delegate casts or through method-call expressions. The arguments in a method-call selector will be correctly used by the compiler to resolve the method, but, again, they won't be evaluated.
+
+```cs
+var bySignature = Members.GetMethod<InstanceType>(x => (Action<int>)x.Overloaded);
+var byArguments = Members.GetMethod<InstanceType>(x => x.Overloaded(0));
+var generic = Members.GetMethod<InstanceType>(x => x.GenericMethod<string>);
+var inferred = Members.GetMethod((InstanceType x) => x.Method);
+var constructor = Members.GetConstructor<int>(value => new InstanceType(value));
+```
+
+Methods returning both `void` and arbitrary values are supported. Method-group selects also support signatures containing by-`ref` parameters, by-`ref` returns, and `ref struct`s such as `Span<T>`, where a value selector would not work. Constructed generic types keep their concrete generic arguments. Extension methods will return their underlying static method.
+
 ## Reified Events
 
 An extensive API for working with events is provided, which is designed to promote them into first-class objects you can work with as you would most .NET concepts.
