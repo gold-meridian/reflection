@@ -7,6 +7,10 @@ partial class EventReference<TTarget, THandler>
 {
     // Split between Subscription scope and real state so copies and concurrency
     // don't result in attempts to dispose of Subscription twice.
+    /// <summary>
+    ///     An event subscription removed on disposal.  Use with
+    ///     <see langword="using"/> to scope a handler's lifetime.
+    /// </summary>
     public readonly struct Subscription : IDisposable
     {
         private readonly SubscriptionState? state;
@@ -16,6 +20,10 @@ partial class EventReference<TTarget, THandler>
             state = new SubscriptionState(reference, target, handler);
         }
 
+        /// <summary>
+        ///     Removes the handler once.  Repeated disposal, including through
+        ///     copies, has no effect.
+        /// </summary>
         public void Dispose()
         {
             state?.Dispose();
@@ -49,9 +57,10 @@ partial class EventReference<TTarget, THandler>
     }
 
     /// <summary>
-    ///     Adds a handler that and returns an object that, when disposed,
-    ///     removes the handler.  Requires both accessors.
+    ///     Adds a handler and returns a subscription that removes it on
+    ///     disposal. Use with <see langword="using"/>.
     /// </summary>
+    /// <inheritdoc cref="Add" path="/param"/>
     public Subscription Subscribe(TTarget? target, THandler? handler)
     {
         if (!CanAdd || !CanRemove)

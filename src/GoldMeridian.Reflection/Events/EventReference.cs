@@ -7,11 +7,17 @@ using System.Runtime.CompilerServices;
 namespace GoldMeridian.Reflection;
 
 /// <summary>
-///     A strongly typed reference to an event, providing its accessors
-///     (including any non-public ones).
+///     Provides typed subscription operations for an event, including
+///     non-public events.
 /// </summary>
 /// <typeparam name="TTarget">The type of the target object.</typeparam>
-/// <typeparam name="THandler">The delegate type.</typeparam>
+/// <typeparam name="THandler">
+///     A delegate type compatible with the event's handler signature.
+/// </typeparam>
+/// <remarks>
+///     Instance events require a compatible, non-null target.  Static events
+///     ignore the target.
+/// </remarks>
 public sealed partial class EventReference<TTarget, THandler>
     where THandler : Delegate
 {
@@ -20,6 +26,9 @@ public sealed partial class EventReference<TTarget, THandler>
     private static readonly ConditionalWeakTable<EventInfo, EventReference<TTarget, THandler>> cache = new();
     private static readonly ConditionalWeakTable<EventInfo, EventReference<TTarget, THandler>> downcast_cache = new();
 
+    /// <summary>
+    ///     The event's reflection metadata.
+    /// </summary>
     public EventInfo Info { get; }
 
     /// <summary>
@@ -38,12 +47,21 @@ public sealed partial class EventReference<TTarget, THandler>
     /// </summary>
     public bool AllowsParameterDowncasts { get; }
 
+    /// <summary>
+    ///     Whether the event supports adding handlers.
+    /// </summary>
     [MemberNotNullWhen(returnValue: true, "add")]
     public bool CanAdd => add is not null;
 
+    /// <summary>
+    ///     Whether the event supports removing handlers.
+    /// </summary>
     [MemberNotNullWhen(returnValue: true, "remove")]
     public bool CanRemove => remove is not null;
 
+    /// <summary>
+    ///     Whether the event is static and requires no target instance.
+    /// </summary>
     public bool IsStatic { get; }
 
     private readonly Accessor? add;
@@ -73,9 +91,10 @@ public sealed partial class EventReference<TTarget, THandler>
     }
 
     /// <summary>
-    ///     Returns <see langword="false"/> only when the event has no
-    ///     <see langword="add"/> accessor.
+    ///     Adds a handler, returning <see langword="false"/> only if the event
+    ///     has no <see langword="add"/> accessor.
     /// </summary>
+    /// <inheritdoc cref="Add" path="/param"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryAdd(TTarget? target, THandler? handler)
     {
@@ -89,6 +108,19 @@ public sealed partial class EventReference<TTarget, THandler>
         return true;
     }
 
+    /// <summary>
+    ///     Adds a handler to the event.
+    /// </summary>
+    /// <param name="target">
+    ///     The event source.  Ignored for static events.
+    /// </param>
+    /// <param name="handler">
+    ///     The handler to add.
+    /// </param>
+    /// <remarks>
+    ///     For standard events, repeated additions create separate
+    ///     subscriptions.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(TTarget? target, THandler? handler)
     {
@@ -99,9 +131,10 @@ public sealed partial class EventReference<TTarget, THandler>
     }
 
     /// <summary>
-    ///     Returns <see langword="false"/> only when the event has no
-    ///     <see langword="remove"/> accessor.
+    ///     Removes a handler, returning <see langword="false"/> only if the
+    ///     event has no <see langword="remove"/> accessor.
     /// </summary>
+    /// <inheritdoc cref="Remove" path="/param"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryRemove(TTarget? target, THandler? handler)
     {
@@ -115,6 +148,17 @@ public sealed partial class EventReference<TTarget, THandler>
         return true;
     }
 
+    /// <summary>
+    ///     Removes a handler from the event.
+    /// </summary>
+    /// <param name="target">
+    ///     The event source.  Ignored for static events.
+    /// </param>
+    /// <param name="handler">A delegate equal to the handler to remove.</param>
+    /// <remarks>
+    ///     For standard events, removes the last matching subscription; absent
+    ///     handlers have no effect.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Remove(TTarget? target, THandler? handler)
     {
@@ -133,6 +177,18 @@ public sealed partial class EventReference<TTarget, THandler>
         }
     }
 
+    /// <summary>
+    ///     Creates a typed reference from an event's reflection metadata.
+    /// </summary>
+    /// <param name="info">The event to reference.</param>
+    /// <param name="allowParameterDowncasts">
+    ///     Allows narrower handler parameter types.  Incompatible arguments
+    ///     throw when the event is raised.
+    /// </param>
+    /// <remarks>
+    ///     For instance events on structs, use <see langword="object"/> or an
+    ///     interface as the target type and retain the boxed instance.
+    /// </remarks>
     public static EventReference<TTarget, THandler> Create(EventInfo info, bool allowParameterDowncasts = false)
     {
         ArgumentNullException.ThrowIfNull(info);

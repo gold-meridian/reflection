@@ -3,9 +3,14 @@ using System;
 namespace GoldMeridian.Reflection;
 
 /// <summary>
-///     A bound event exposing <see langword="add"/>/<see langword="remove"/>
-///     operations.
+///     An event wrapper supporting <c>+=</c> and <c>-=</c>, including through
+///     properties.
 /// </summary>
+/// <typeparam name="THandler">The handler delegate type.</typeparam>
+/// <remarks>
+///     Construct a wrapper or obtain one from
+///     <see cref="Events.Wrap{T, THandler}"/> before use.
+/// </remarks>
 public readonly struct EventWrapper<THandler>
     where THandler : Delegate
 {
@@ -14,6 +19,19 @@ public readonly struct EventWrapper<THandler>
     private readonly IEventAccessors<THandler>? reference;
     private readonly object? target;
 
+    /// <summary>
+    ///     Wraps callbacks that subscribe and unsubscribe handlers.
+    /// </summary>
+    /// <param name="add">
+    ///     A callback such as <c>handler =&gt; source.Changed += handler</c>.
+    /// </param>
+    /// <param name="remove">
+    ///     A callback such as <c>handler =&gt; source.Changed -= handler</c>.
+    /// </param>
+    /// <remarks>
+    ///     Use <see cref="Events.Wrap{T, THandler}"/> when handler types need
+    ///     adaptation.
+    /// </remarks>
     public EventWrapper(Action<THandler?> add, Action<THandler?> remove)
     {
         ArgumentNullException.ThrowIfNull(add);
@@ -32,6 +50,9 @@ public readonly struct EventWrapper<THandler>
         remove = null;
     }
 
+    /// <summary>
+    ///     Adds a handler to the wrapped event.
+    /// </summary>
     public void Add(THandler? handler)
     {
         if (reference is not null)
@@ -48,6 +69,9 @@ public readonly struct EventWrapper<THandler>
         }
     }
 
+    /// <summary>
+    ///     Removes a handler from the wrapped event.
+    /// </summary>
     public void Remove(THandler? handler)
     {
         if (reference is not null)
@@ -64,22 +88,30 @@ public readonly struct EventWrapper<THandler>
         }
     }
 
+    /// <inheritdoc cref="Add"/>
     public void operator += (THandler? handler)
     {
         Add(handler);
     }
 
+    /// <inheritdoc cref="Remove"/>
     public void operator -= (THandler? handler)
     {
         Remove(handler);
     }
 
+    /// <summary>
+    ///     Adds a handler to the wrapped event and returns the wrapper.
+    /// </summary>
     public static EventWrapper<THandler> operator +(EventWrapper<THandler> wrapper, THandler? handler)
     {
         wrapper.Add(handler);
         return wrapper;
     }
 
+    /// <summary>
+    ///     Removes a handler from the wrapped event and returns the wrapper.
+    /// </summary>
     public static EventWrapper<THandler> operator -(EventWrapper<THandler> wrapper, THandler? handler)
     {
         wrapper.Remove(handler);
