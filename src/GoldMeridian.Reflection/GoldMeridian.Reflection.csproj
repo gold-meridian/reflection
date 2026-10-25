@@ -2,9 +2,43 @@
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
-        <LangVersion>latest</LangVersion>
+        <LangVersion>14.0</LangVersion>
         <Nullable>enable</Nullable>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
+
+    <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <Version>1.0.0</Version>
+        <PackageId>GoldMeridian.Reflection</PackageId>
+        <Title>GoldMeridian.Reflection</Title>
+        <Authors>Stephen Thiebaud et al.</Authors>
+        <Company>Gold Meridian</Company>
+        <Product>GoldMeridian.Reflection</Product>
+        <Description>Reflection helpers for .NET; expression syntax for obtaining Reflection member info, reified events through type-safe objects.</Description>
+        <Copyright>Copyright (c) 2026 Stephen Thiebaud et al.</Copyright>
+        <PackageTags>reflection;expressions;events;delegates;type-safe;dotnet</PackageTags>
+        <PackageProjectUrl>https://github.com/gold-meridian/reflection</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/gold-meridian/reflection.git</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <DebugType>portable</DebugType>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <EnablePackageValidation>true</EnablePackageValidation>
+        <ContinuousIntegrationBuild Condition="'$(CI)' == 'true' or '$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="../../README.md" Pack="true" PackagePath="/"/>
+        <None Include="../../LICENSE" Pack="true" PackagePath="/"/>
+    </ItemGroup>
 
 </Project>
