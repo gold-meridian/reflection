@@ -56,7 +56,7 @@ extension<TElement>(TElement element)
 {
     public EventWrapper<MouseEvent<TElement>> OnLeftMouseDownExt
     {
-        get => Events.Wrap<UIElement, MOuseEvent<TElement>>(element, nameof(UIElement.OnLeftMouseDown), allowParameterDowncasts: true);
+        get => Events.Wrap<UIElement, MouseEvent<TElement>>(element, nameof(UIElement.OnLeftMouseDown), allowParameterDowncasts: true);
         set => _ = value;
     }
 }
