@@ -95,7 +95,7 @@ extension<TElement>(TElement element)
 }
 ```
 
-### Delegating forwarding and delegate equality
+### Delegate forwarding and delegate equality
 
 Previous examples have demonstrated this implicitly. In an effort to support type coercion in delegate arguments, delegates with coercible parameters may be automatically forwarded internally. In such events, equality is preserved, allowing you to treat a reference to the same handler as equal as if no forwarding had to occur.
 
